@@ -29,6 +29,18 @@ public final class StudentController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    @GetMapping("/search/name/{name}")
+    public List<Student> getByName(@PathVariable String name) {
+        return studentService.findByName(name);
+    }
+
+    @GetMapping("/enrollment/{enrollmentNumber}")
+    public ResponseEntity<Student> getByEnrollmentNumber(@PathVariable String enrollmentNumber) {
+        return studentService.findByEnrollmentNumber(enrollmentNumber)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
     @PostMapping
     public Student create(@RequestBody Student student) {
         return studentService.save(student);

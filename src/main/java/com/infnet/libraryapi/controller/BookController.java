@@ -29,6 +29,16 @@ public final class BookController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    @GetMapping("/search/title/{title}")
+    public List<Book> getByTitle(@PathVariable String title) {
+        return bookService.findByTitle(title);
+    }
+
+    @GetMapping("/search/author/{author}")
+    public List<Book> getByAuthor(@PathVariable String author) {
+        return bookService.findByAuthor(author);
+    }
+
     @PostMapping
     public Book create(@RequestBody Book book) {
         return bookService.save(book);
