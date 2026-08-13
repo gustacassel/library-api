@@ -1,8 +1,11 @@
 package com.infnet.libraryapi.controller;
 
-import com.infnet.libraryapi.model.Loan;
+import com.infnet.libraryapi.dto.LoanRequest;
+import com.infnet.libraryapi.dto.LoanResponse;
 import com.infnet.libraryapi.model.LoanStatus;
 import com.infnet.libraryapi.service.LoanService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -19,47 +22,47 @@ public final class LoanController {
     }
 
     @GetMapping
-    public List<Loan> getAll() {
-        return loanService.findAll();
+    public List<LoanResponse> getAll() {
+        return loanService.enrich(loanService.findAll());
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Loan> getById(@PathVariable Long id) {
+    public ResponseEntity<LoanResponse> getById(@PathVariable Long id) {
         return loanService.findById(id)
+                .flatMap(loanService::enrich)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @GetMapping("/status/{status}")
-    public List<Loan> getByStatus(@PathVariable LoanStatus status) {
-        return loanService.findByStatus(status);
+    public List<LoanResponse> getByStatus(@PathVariable LoanStatus status) {
+        return loanService.enrich(loanService.findByStatus(status));
     }
 
     @GetMapping("/student/{studentId}")
-    public List<Loan> getByStudent(@PathVariable Long studentId) {
-        return loanService.findByStudent(studentId);
+    public List<LoanResponse> getByStudent(@PathVariable Long studentId) {
+        return loanService.enrich(loanService.findByStudent(studentId));
     }
 
     @GetMapping("/book/{bookId}")
-    public List<Loan> getByBook(@PathVariable Long bookId) {
-        return loanService.findByBook(bookId);
+    public List<LoanResponse> getByBook(@PathVariable Long bookId) {
+        return loanService.enrich(loanService.findByBook(bookId));
     }
 
     @GetMapping("/overdue")
-    public List<Loan> getOverdue() {
-        return loanService.findOverdue();
+    public List<LoanResponse> getOverdue() {
+        return loanService.enrich(loanService.findOverdue());
     }
 
     @PostMapping
-    public ResponseEntity<Loan> create(@RequestBody Loan loan) {
-        return loanService.create(loan)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.badRequest().build());
+    public ResponseEntity<LoanResponse> create(@Valid @RequestBody LoanRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(loanService.create(request));
     }
 
     @PutMapping("/{id}/return")
-    public ResponseEntity<Loan> returnLoan(@PathVariable Long id) {
+    public ResponseEntity<LoanResponse> returnLoan(@PathVariable Long id) {
         return loanService.returnLoan(id)
+                .flatMap(loanService::enrich)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }

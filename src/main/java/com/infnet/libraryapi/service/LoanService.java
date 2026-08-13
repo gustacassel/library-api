@@ -1,16 +1,20 @@
 package com.infnet.libraryapi.service;
 
+import com.infnet.libraryapi.client.dto.StudentDto;
+import com.infnet.libraryapi.dto.LoanRequest;
+import com.infnet.libraryapi.dto.LoanResponse;
+import com.infnet.libraryapi.exception.BusinessException;
 import com.infnet.libraryapi.model.AuditAction;
 import com.infnet.libraryapi.model.Loan;
 import com.infnet.libraryapi.model.LoanStatus;
 import com.infnet.libraryapi.repository.BookRepository;
 import com.infnet.libraryapi.repository.LoanRepository;
-import com.infnet.libraryapi.repository.StudentRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
@@ -20,16 +24,16 @@ public class LoanService {
 
     private final LoanRepository repository;
     private final BookRepository bookRepository;
-    private final StudentRepository studentRepository;
+    private final StudentGateway studentGateway;
     private final AuditService auditService;
 
     public LoanService(LoanRepository repository,
                        BookRepository bookRepository,
-                       StudentRepository studentRepository,
+                       StudentGateway studentGateway,
                        AuditService auditService) {
         this.repository = repository;
         this.bookRepository = bookRepository;
-        this.studentRepository = studentRepository;
+        this.studentGateway = studentGateway;
         this.auditService = auditService;
     }
 
@@ -57,34 +61,59 @@ public class LoanService {
         return repository.findOverdue(LocalDate.now());
     }
 
+    /** Uma unica chamada remota enriquece a lista inteira. */
+    public List<LoanResponse> enrich(List<Loan> loans) {
+        if (loans.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, StudentDto> students = studentGateway.indexAll();
+        return loans.stream()
+                .map(loan -> LoanResponse.of(loan, students.get(loan.getStudentId())))
+                .toList();
+    }
+
+    public Optional<LoanResponse> enrich(Loan loan) {
+        return Optional.of(LoanResponse.of(loan, studentGateway.tryFindById(loan.getStudentId()).orElse(null)));
+    }
+
+    /**
+     * Valida o livro localmente e o aluno no microsservico antes de gravar.
+     *
+     * @throws BusinessException se livro/aluno nao existem ou o aluno nao esta ativo
+     * @throws com.infnet.libraryapi.exception.StudentServiceUnavailableException
+     *         se o microsservico nao responder
+     */
     @Transactional
-    public Optional<Loan> create(Loan loan) {
-        if (loan.getBook() == null || loan.getBook().getId() == null
-                || loan.getStudent() == null || loan.getStudent().getId() == null) {
-            return Optional.empty();
+    public LoanResponse create(LoanRequest request) {
+        var book = bookRepository.findById(request.bookId())
+                .orElseThrow(() -> new BusinessException("Livro %d nao encontrado".formatted(request.bookId())));
+
+        var student = studentGateway.findRequired(request.studentId())
+                .orElseThrow(() -> new BusinessException(
+                        "Estudante %d nao encontrado no microsservico de estudantes".formatted(request.studentId())));
+
+        if (!student.isActive()) {
+            throw new BusinessException(
+                    "O estudante '%s' esta com situacao %s e nao pode pegar livros emprestados"
+                            .formatted(student.name(), student.status()));
         }
 
-        var book = bookRepository.findById(loan.getBook().getId());
-        var student = studentRepository.findById(loan.getStudent().getId());
-        if (book.isEmpty() || student.isEmpty()) {
-            return Optional.empty();
-        }
-
-        loan.setBook(book.get());
-        loan.setStudent(student.get());
-        if (loan.getLoanDate() == null) {
-            loan.setLoanDate(LocalDate.now());
-        }
-        if (loan.getDueDate() == null) {
-            loan.setDueDate(loan.getLoanDate().plusDays(DEFAULT_LOAN_DAYS));
-        }
+        var loan = new Loan();
+        loan.setBook(book);
+        loan.setStudentId(student.id());
+        loan.setStudentName(student.name());
+        loan.setLoanDate(request.loanDate() != null ? request.loanDate() : LocalDate.now());
+        loan.setDueDate(request.dueDate() != null
+                ? request.dueDate()
+                : loan.getLoanDate().plusDays(DEFAULT_LOAN_DAYS));
         loan.setStatus(LoanStatus.ACTIVE);
 
         var saved = repository.save(loan);
         auditService.record(ENTITY_NAME, saved.getId(), AuditAction.CREATE,
-                "Emprestimo criado: livro '%s' para aluno '%s', devolucao ate %s"
-                        .formatted(saved.getBook().getTitle(), saved.getStudent().getName(), saved.getDueDate()));
-        return Optional.of(saved);
+                "Emprestimo criado: livro '%s' para aluno '%s' (id %d), devolucao ate %s"
+                        .formatted(book.getTitle(), student.name(), student.id(), saved.getDueDate()));
+        return LoanResponse.of(saved, student);
     }
 
     @Transactional
@@ -101,7 +130,7 @@ public class LoanService {
         var saved = repository.save(returnedLoan);
         auditService.record(ENTITY_NAME, saved.getId(), AuditAction.UPDATE,
                 "Emprestimo devolvido em %s: livro '%s' (aluno '%s')"
-                        .formatted(saved.getReturnDate(), saved.getBook().getTitle(), saved.getStudent().getName()));
+                        .formatted(saved.getReturnDate(), saved.getBook().getTitle(), saved.getStudentName()));
         return Optional.of(saved);
     }
 
@@ -115,7 +144,7 @@ public class LoanService {
         repository.delete(loan.get());
         auditService.record(ENTITY_NAME, id, AuditAction.DELETE,
                 "Emprestimo removido: livro '%s' (aluno '%s')"
-                        .formatted(loan.get().getBook().getTitle(), loan.get().getStudent().getName()));
+                        .formatted(loan.get().getBook().getTitle(), loan.get().getStudentName()));
         return true;
     }
 }

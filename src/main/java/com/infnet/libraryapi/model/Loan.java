@@ -37,9 +37,19 @@ public class Loan {
     @JoinColumn(name = "book_id", nullable = false)
     private Book book;
 
-    @ManyToOne(optional = false)
-    @JoinColumn(name = "student_id", nullable = false)
-    private Student student;
+    /**
+     * O aluno vive no microsservico students-api, entao nao ha chave estrangeira
+     * aqui: a integridade e garantida pelo StudentGateway, nao pelo banco.
+     */
+    @Column(name = "student_id", nullable = false)
+    private Long studentId;
+
+    /**
+     * Copia proposital: mantem o historico legivel se o microsservico cair ou
+     * se o aluno for removido de la depois.
+     */
+    @Column(name = "student_name", length = 150)
+    private String studentName;
 
     @Column(nullable = false)
     private LocalDate loanDate;

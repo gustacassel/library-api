@@ -1,21 +1,27 @@
 package com.infnet.libraryapi.repository;
 
+import com.infnet.libraryapi.config.JpaAuditingConfig;
 import com.infnet.libraryapi.model.Book;
 import com.infnet.libraryapi.model.Loan;
 import com.infnet.libraryapi.model.LoanStatus;
-import com.infnet.libraryapi.model.Student;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
+import org.springframework.context.annotation.Import;
 
 import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DataJpaTest
+@Import(JpaAuditingConfig.class)
 class LoanRepositoryTest {
+
+    /** O aluno vive no microsservico: aqui e so um id, sem tabela nem FK. */
+    private static final Long STUDENT_ID = 42L;
+    private static final String STUDENT_NAME = "Maria Silva";
 
     @Autowired
     private LoanRepository repository;
@@ -24,7 +30,6 @@ class LoanRepositoryTest {
     private TestEntityManager entityManager;
 
     private Book book;
-    private Student student;
 
     @BeforeEach
     void setUp() {
@@ -32,18 +37,17 @@ class LoanRepositoryTest {
         book.setTitle("Clean Code");
         book.setAuthor("Robert C. Martin");
         entityManager.persist(book);
-
-        student = new Student();
-        student.setName("Maria Silva");
-        student.setEmail("maria@email.com");
-        student.setEnrollmentNumber("2026001");
-        entityManager.persist(student);
     }
 
     private Loan newLoan(LoanStatus status, LocalDate loanDate, LocalDate dueDate) {
+        return newLoan(status, loanDate, dueDate, STUDENT_ID);
+    }
+
+    private Loan newLoan(LoanStatus status, LocalDate loanDate, LocalDate dueDate, Long studentId) {
         var loan = new Loan();
         loan.setBook(book);
-        loan.setStudent(student);
+        loan.setStudentId(studentId);
+        loan.setStudentName(STUDENT_NAME);
         loan.setLoanDate(loanDate);
         loan.setDueDate(dueDate);
         loan.setStatus(status);
@@ -51,15 +55,25 @@ class LoanRepositoryTest {
     }
 
     @Test
-    void shouldSaveLoanWithBookAndStudentRelationships() {
+    void shouldSaveLoanReferencingRemoteStudentById() {
         var saved = repository.save(newLoan(LoanStatus.ACTIVE, LocalDate.now(), LocalDate.now().plusDays(14)));
 
         var found = repository.findById(saved.getId());
 
         assertThat(found).isPresent();
         assertThat(found.get().getBook().getTitle()).isEqualTo("Clean Code");
-        assertThat(found.get().getStudent().getName()).isEqualTo("Maria Silva");
+        assertThat(found.get().getStudentId()).isEqualTo(STUDENT_ID);
+        assertThat(found.get().getStudentName()).isEqualTo(STUDENT_NAME);
         assertThat(found.get().getCreatedAt()).isNotNull();
+    }
+
+    @Test
+    void shouldPersistLoanForAStudentThatOnlyExistsInTheMicroservice() {
+        // sem FK, qualquer id e aceito aqui: quem valida e o StudentGateway
+        var saved = repository.save(newLoan(LoanStatus.ACTIVE, LocalDate.now(), LocalDate.now().plusDays(14), 9_999L));
+
+        assertThat(saved.getId()).isNotNull();
+        assertThat(repository.findByStudentId(9_999L)).hasSize(1);
     }
 
     @Test
@@ -67,18 +81,15 @@ class LoanRepositoryTest {
         repository.save(newLoan(LoanStatus.ACTIVE, LocalDate.now(), LocalDate.now().plusDays(14)));
         repository.save(newLoan(LoanStatus.RETURNED, LocalDate.now().minusDays(30), LocalDate.now().minusDays(16)));
 
-        var active = repository.findByStatus(LoanStatus.ACTIVE);
-        var returned = repository.findByStatus(LoanStatus.RETURNED);
-
-        assertThat(active).hasSize(1);
-        assertThat(returned).hasSize(1);
+        assertThat(repository.findByStatus(LoanStatus.ACTIVE)).hasSize(1);
+        assertThat(repository.findByStatus(LoanStatus.RETURNED)).hasSize(1);
     }
 
     @Test
     void shouldFindByStudentIdAndBookId() {
         repository.save(newLoan(LoanStatus.ACTIVE, LocalDate.now(), LocalDate.now().plusDays(14)));
 
-        assertThat(repository.findByStudentId(student.getId())).hasSize(1);
+        assertThat(repository.findByStudentId(STUDENT_ID)).hasSize(1);
         assertThat(repository.findByBookId(book.getId())).hasSize(1);
         assertThat(repository.findByStudentId(999L)).isEmpty();
     }

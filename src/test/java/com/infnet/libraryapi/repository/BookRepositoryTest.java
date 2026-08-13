@@ -1,13 +1,16 @@
 package com.infnet.libraryapi.repository;
 
+import com.infnet.libraryapi.config.JpaAuditingConfig;
 import com.infnet.libraryapi.model.Book;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.context.annotation.Import;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DataJpaTest
+@Import(JpaAuditingConfig.class)
 class BookRepositoryTest {
 
     @Autowired
